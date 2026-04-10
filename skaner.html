@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Skanuj QR</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--g:#639922;--gb:#EAF3DE;--gd:#3B6D11;--tx:#1a1a1a;--tx2:#666;--bd:#ddd;--bg:#f5f5f5;--card:#fff;--r:#E24B4A}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#000;color:#fff;min-height:100vh;display:flex;flex-direction:column}
+.topbar{background:rgba(0,0,0,.8);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:fixed;top:0;left:0;right:0;z-index:10;backdrop-filter:blur(10px)}
+.topbar-title{font-size:17px;font-weight:600}
+.topbar-sub{font-size:12px;color:rgba(255,255,255,.6)}
+#reader{width:100%;flex:1;margin-top:52px}
+#reader video{width:100%!important;height:calc(100vh - 52px)!important;object-fit:cover}
+
+/* Ukryj domyślne UI html5-qrcode */
+#reader__scan_region{position:relative}
+#reader__dashboard{padding:12px 16px;background:rgba(0,0,0,.8);position:fixed;bottom:0;left:0;right:0;backdrop-filter:blur(10px)}
+#reader__dashboard_section_csr button{width:100%;padding:14px;font-size:16px;font-weight:600;border-radius:12px;border:none;background:var(--g);color:#fff;cursor:pointer;margin-bottom:8px}
+#reader__dashboard_section_swaplink{display:none}
+#reader__camera_selection{width:100%;padding:10px;font-size:14px;border-radius:8px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:#fff;margin-bottom:8px}
+
+.overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.85);z-index:20;padding:24px;text-align:center}
+.overlay-icon{font-size:56px;margin-bottom:16px}
+.overlay-title{font-size:20px;font-weight:700;margin-bottom:8px}
+.overlay-sub{font-size:14px;color:rgba(255,255,255,.7);margin-bottom:24px;line-height:1.5}
+.overlay-btn{padding:16px 32px;font-size:16px;font-weight:700;border-radius:14px;border:none;background:var(--g);color:#fff;cursor:pointer;margin-bottom:12px;width:100%}
+.overlay-btn.secondary{background:rgba(255,255,255,.15);color:#fff}
+
+.success-overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.9);z-index:30;padding:24px;text-align:center}
+.success-icon{font-size:64px;margin-bottom:16px}
+.success-title{font-size:22px;font-weight:700;margin-bottom:8px}
+.success-zp{font-size:28px;font-weight:700;color:var(--g);margin-bottom:8px;word-break:break-all}
+.success-sub{font-size:14px;color:rgba(255,255,255,.6);margin-bottom:24px}
+.success-progress{width:100%;height:4px;background:rgba(255,255,255,.2);border-radius:2px;overflow:hidden;margin-bottom:24px}
+.success-progress-bar{height:100%;background:var(--g);border-radius:2px;animation:progress 2s linear forwards}
+@keyframes progress{from{width:0}to{width:100%}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="topbar-title">Skanuj QR kod</span>
+  <span class="topbar-sub" id="topbar-sub">Skieruj kamerę na kod</span>
+</div>
+
+<div id="reader"></div>
+
+<!-- Overlay: brak kamery / błąd -->
+<div class="overlay" id="overlay-error" style="display:none">
+  <div class="overlay-icon">📷</div>
+  <div class="overlay-title">Brak dostępu do kamery</div>
+  <div class="overlay-sub" id="error-msg">Zezwól na dostęp do kamery w ustawieniach przeglądarki.</div>
+  <button class="overlay-btn" onclick="startScaner()">Spróbuj ponownie</button>
+</div>
+
+<!-- Overlay: sukces -->
+<div class="success-overlay" id="overlay-success" style="display:none">
+  <div class="success-icon">✓</div>
+  <div class="success-title">Zeskanowano!</div>
+  <div class="success-zp" id="success-zp"></div>
+  <div class="success-sub">Przekierowanie do aplikacji...</div>
+  <div class="success-progress"><div class="success-progress-bar"></div></div>
+</div>
+
+<script>
+var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw6Q7jQoWym0-hL5asWWHl3P2wEuyXR8By2_0Y4MNbqnfKV2KtSK8b2oWy3fhbU8QDdVg/exec';
+
+var html5QrCode = null;
+var scanning = false;
+
+function startScaner() {
+  document.getElementById('overlay-error').style.display = 'none';
+
+  html5QrCode = new Html5Qrcode('reader');
+
+  Html5Qrcode.getCameras()
+    .then(function(cameras) {
+      if (!cameras || !cameras.length) {
+        showError('Nie znaleziono kamery w tym urządzeniu.');
+        return;
+      }
+      // Preferuj tylną kamerę
+      var cam = cameras[cameras.length - 1];
+      return html5QrCode.start(
+        {facingMode: 'environment'},
+        {fps: 10, qrbox: {width: 250, height: 250}},
+        onScanSuccess,
+        onScanError
+      );
+    })
+    .catch(function(err) {
+      showError('Brak dostępu do kamery. Sprawdź uprawnienia w przeglądarce.<br><small>' + err + '</small>');
+    });
+}
+
+function onScanSuccess(decodedText) {
+  if (scanning) return;
+  scanning = true;
+
+  // Zatrzymaj kamerę
+  if (html5QrCode) {
+    html5QrCode.stop().catch(function(){});
+  }
+
+  // Parsuj QR żeby pokazać numer ZP
+  var zpNr = parseZP(decodedText);
+  document.getElementById('success-zp').textContent = zpNr;
+  document.getElementById('overlay-success').style.display = 'flex';
+
+  // Przekieruj po 2 sekundach
+  setTimeout(function() {
+    var url = APPS_SCRIPT_URL + '?zp=' + encodeURIComponent(decodedText);
+    window.location.href = url;
+  }, 2000);
+}
+
+function onScanError() {
+  // Ignoruj błędy skanowania (normalne gdy kamera szuka kodu)
+}
+
+function parseZP(raw) {
+  var parts = String(raw).split('*').filter(Boolean);
+  for (var i = 0; i < parts.length; i++) {
+    var idx = parts[i].indexOf(':');
+    if (idx > -1) {
+      var key = parts[i].slice(0, idx).trim();
+      var val = parts[i].slice(idx + 1).trim();
+      if (key === '1') return val;
+    }
+  }
+  return raw.length > 30 ? raw.slice(0, 30) + '...' : raw;
+}
+
+function showError(msg) {
+  document.getElementById('error-msg').innerHTML = msg;
+  document.getElementById('overlay-error').style.display = 'flex';
+}
+
+// Start od razu
+startScaner();
+</script>
+</body>
+</html>
