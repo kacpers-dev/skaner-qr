@@ -114,10 +114,14 @@ function onScanSuccess(decodedText) {
   document.getElementById('success-zp').textContent = zpNr;
   document.getElementById('overlay-success').style.display = 'flex';
 
-  // Przekieruj po 2 sekundach — operator w hash (Apps Script ignoruje hash, przeglądarka nie)
   setTimeout(function() {
     var url = APPS_SCRIPT_URL + '?zp=' + encodeURIComponent(decodedText) + '#op=' + encodeURIComponent(_operator);
-    window.location.href = url;
+    if (window.opener && !window.opener.closed) {
+      window.opener.location.href = url;
+      window.close();
+    } else {
+      window.location.href = url;
+    }
   }, 2000);
 }
 
